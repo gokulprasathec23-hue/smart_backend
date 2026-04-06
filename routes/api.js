@@ -13,10 +13,14 @@ const {
     getMachineStatus,
     getMachineLogs
 } = require('../controllers/machineController');
+const { iotUpdate } = require('../controllers/iotController');
 const { protect, admin } = require('../middleware/authMiddleware');
 
 // Auth routes
 router.post('/login', loginUser);
+
+// IoT Simulator data ingestion (no auth needed — secured by secret key in header)
+router.post('/iot/update', iotUpdate);
 
 // Machine routes (Protected)
 router.route('/machines')

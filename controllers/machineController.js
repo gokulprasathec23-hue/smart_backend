@@ -1,9 +1,13 @@
 const Machine = require('../models/Machine');
 const MachineLog = require('../models/MachineLog');
+const connectDB = require('../config/db');
+
+const ensureDB = async () => connectDB();
 
 // Get all machines
 const getMachines = async (req, res) => {
     try {
+        await ensureDB();
         const machines = await Machine.find({});
         res.json(machines);
     } catch (error) {
@@ -14,17 +18,13 @@ const getMachines = async (req, res) => {
 // Start machine
 const startMachine = async (req, res) => {
     try {
+        await ensureDB();
         const machine = await Machine.findOne({ machineId: req.body.machineId });
         if (machine) {
             machine.status = 'Running';
             machine.startedAt = Date.now();
             machine.lastUpdated = Date.now();
             await machine.save();
-            
-            // Emit via socket io attached to req
-            req.io.emit('machine_command', { machineId: machine.machineId, command: 'start' });
-            req.io.emit('machine_update', machine);
-
             res.json(machine);
         } else {
             res.status(404).json({ message: 'Machine not found' });
@@ -37,6 +37,7 @@ const startMachine = async (req, res) => {
 // Stop machine
 const stopMachine = async (req, res) => {
     try {
+        await ensureDB();
         const machine = await Machine.findOne({ machineId: req.body.machineId });
         if (machine) {
             machine.status = 'Stopped';
@@ -46,10 +47,6 @@ const stopMachine = async (req, res) => {
             machine.powerConsumption = 0;
             machine.lastUpdated = Date.now();
             await machine.save();
-            
-            req.io.emit('machine_command', { machineId: machine.machineId, command: 'stop' });
-            req.io.emit('machine_update', machine);
-
             res.json(machine);
         } else {
             res.status(404).json({ message: 'Machine not found' });
@@ -62,21 +59,25 @@ const stopMachine = async (req, res) => {
 // Restart machine
 const restartMachine = async (req, res) => {
     try {
+        await ensureDB();
         const machine = await Machine.findOne({ machineId: req.body.machineId });
         if (machine) {
             machine.status = 'Stopped';
+            machine.startedAt = null;
             await machine.save();
-            req.io.emit('machine_command', { machineId: machine.machineId, command: 'restart' });
-            req.io.emit('machine_update', machine);
-            
-            // Simulate restart delay
+
+            // Simulate restart delay (note: setTimeout works in Vercel but may be cut short)
             setTimeout(async () => {
-                const updatedMachine = await Machine.findOne({ machineId: req.body.machineId });
-                if(updatedMachine) {
-                   updatedMachine.status = 'Running';
-                   updatedMachine.startedAt = Date.now();
-                   await updatedMachine.save();
-                   req.io.emit('machine_update', updatedMachine);
+                try {
+                    const updatedMachine = await Machine.findOne({ machineId: req.body.machineId });
+                    if (updatedMachine && updatedMachine.status === 'Stopped') {
+                        updatedMachine.status = 'Running';
+                        updatedMachine.startedAt = Date.now();
+                        updatedMachine.lastUpdated = Date.now();
+                        await updatedMachine.save();
+                    }
+                } catch (e) {
+                    console.error('Restart timeout error:', e.message);
                 }
             }, 3000);
 
@@ -91,7 +92,8 @@ const restartMachine = async (req, res) => {
 
 // Emergency stop
 const emergencyStop = async (req, res) => {
-     try {
+    try {
+        await ensureDB();
         const machine = await Machine.findOne({ machineId: req.body.machineId });
         if (machine) {
             machine.status = 'Error';
@@ -102,13 +104,6 @@ const emergencyStop = async (req, res) => {
             machine.powerConsumption = 0;
             machine.lastUpdated = Date.now();
             await machine.save();
-            
-            req.io.emit('machine_command', { machineId: machine.machineId, command: 'emergency_stop' });
-            req.io.emit('machine_update', machine);
-            
-            // Generate alert
-            req.io.emit('alert', { type: 'critical', message: `EMERGENCY STOP activated for ${machine.machineName}`});
-
             res.json(machine);
         } else {
             res.status(404).json({ message: 'Machine not found' });
@@ -116,11 +111,12 @@ const emergencyStop = async (req, res) => {
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
-}
+};
 
 // Get single machine status
 const getMachineStatus = async (req, res) => {
     try {
+        await ensureDB();
         const machine = await Machine.findOne({ machineId: req.params.id });
         if (machine) {
             res.json(machine);
@@ -128,48 +124,39 @@ const getMachineStatus = async (req, res) => {
             res.status(404).json({ message: 'Machine not found' });
         }
     } catch (error) {
-         res.status(500).json({ message: error.message });
+        res.status(500).json({ message: error.message });
     }
-}
+};
 
 // Get historical log data for charts
 const getMachineLogs = async (req, res) => {
     try {
-         const machine = await Machine.findOne({ machineId: req.params.id });
-         if (!machine) return res.status(404).json({ message: 'Machine not found' });
+        await ensureDB();
+        const machine = await Machine.findOne({ machineId: req.params.id });
+        if (!machine) return res.status(404).json({ message: 'Machine not found' });
 
-         // Get last 20 logs
-         const logs = await MachineLog.find({ machineId: machine._id })
-                                      .sort({ recordedAt: -1 })
-                                      .limit(20);
-         res.json(logs.reverse());
+        const logs = await MachineLog.find({ machineId: machine._id })
+            .sort({ recordedAt: -1 })
+            .limit(20);
+        res.json(logs.reverse());
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
-}
+};
 
 // Create machine
 const createMachine = async (req, res) => {
     try {
+        await ensureDB();
         const { machineId, machineName, ...otherData } = req.body;
-        
-        // Check if machineId already exists
+
         const existingMachine = await Machine.findOne({ machineId });
         if (existingMachine) {
             return res.status(400).json({ message: 'Machine with this ID already exists' });
         }
 
-        const machine = new Machine({
-            machineId,
-            machineName,
-            ...otherData
-        });
-
+        const machine = new Machine({ machineId, machineName, ...otherData });
         const createdMachine = await machine.save();
-        
-        // Notify clients
-        req.io.emit('machine_update', createdMachine);
-        
         res.status(201).json(createdMachine);
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -179,25 +166,17 @@ const createMachine = async (req, res) => {
 // Update machine
 const updateMachine = async (req, res) => {
     try {
+        await ensureDB();
         const machine = await Machine.findOne({ machineId: req.params.id });
-        
+
         if (machine) {
-            // Update fields provided in request body
             const { machineName, status, health } = req.body;
-            
             if (machineName) machine.machineName = machineName;
-            
-            // Only update status and health if provided (usually for administrative override)
             if (status) machine.status = status;
             if (health) machine.health = health;
-            
             machine.lastUpdated = Date.now();
-            
+
             const updatedMachine = await machine.save();
-            
-            // Notify clients
-            req.io.emit('machine_update', updatedMachine);
-            
             res.json(updatedMachine);
         } else {
             res.status(404).json({ message: 'Machine not found' });
@@ -210,20 +189,13 @@ const updateMachine = async (req, res) => {
 // Delete machine
 const deleteMachine = async (req, res) => {
     try {
+        await ensureDB();
         const machine = await Machine.findOne({ machineId: req.params.id });
-        
+
         if (machine) {
-            // Alternatively, could use machine.remove() if using older mongoose version,
-            // but deleteOne is safer
             await Machine.deleteOne({ machineId: req.params.id });
-            
-            // Also delete associated logs
             await MachineLog.deleteMany({ machineId: machine._id });
-            
-            // Notify clients
-            req.io.emit('machine_deleted', { machineId: req.params.id });
-            
-            res.json({ message: 'Machine removed' });
+            res.json({ message: 'Machine removed', machineId: req.params.id });
         } else {
             res.status(404).json({ message: 'Machine not found' });
         }
