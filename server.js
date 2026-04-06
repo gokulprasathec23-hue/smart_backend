@@ -106,9 +106,14 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 5174;
 
-// Connect DB then start server
-connectDB().then(() => {
+// Connect DB
+connectDB();
+
+// Only listen locally, Vercel serverless functions will use the exported app directly
+if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
     server.listen(PORT, () => {
         console.log(`Server running on port ${PORT}`);
     });
-});
+}
+
+module.exports = app;
