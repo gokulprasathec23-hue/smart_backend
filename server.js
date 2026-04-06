@@ -30,6 +30,10 @@ app.use((req, res, next) => {
 });
 
 // Routes
+app.get('/', (req, res) => {
+    res.json({ message: "Smart IoT Control Panel API is running..." });
+});
+
 app.use('/api', apiRoutes);
 
 // Socket.io connection handling
