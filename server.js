@@ -6,7 +6,7 @@ const apiRoutes = require('./routes/api');
 
 const app = express();
 
-const allowedOrigins = ['https://smart-control-three.vercel.app'];
+const allowedOrigins = [process.env.FRONTEND_URL];
 const corsOptions = {
     origin: (origin, callback) => {
         if (!origin || allowedOrigins.includes(origin)) {
@@ -21,7 +21,6 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
 
 // Middleware
 app.use(express.json());
