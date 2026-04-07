@@ -1,18 +1,11 @@
 require('dotenv').config();
 const express = require('express');
-const cors = require('cors');
 const connectDB = require('./config/db');
 const apiRoutes = require('./routes/api');
 
 const app = express();
 
-const frontendOrigin = process.env.FRONTEND_URL || '*';
-
 // Middleware
-app.use(cors({
-    origin: frontendOrigin,
-    credentials: true
-}));
 app.use(express.json());
 
 // Health check / root route
